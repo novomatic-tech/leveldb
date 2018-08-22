@@ -17,6 +17,8 @@
 #include "table/two_level_iterator.h"
 #include "util/coding.h"
 #include "util/logging.h"
+#include "version_set.h"
+#include "../include/leveldb/options.h"
 
 namespace leveldb {
 
@@ -904,8 +906,15 @@ Status VersionSet::LogAndApply(VersionEdit* edit, port::Mutex* mu) {
 
 Status VersionSet::Recover(bool *save_manifest) {
   struct LogReporter : public log::Reader::Reporter {
+    CorruptionReporter* corruption_reporter;
+    const char* fname;
     Status* status;
     virtual void Corruption(size_t bytes, const Status& s) {
+      if(corruption_reporter) {
+        char err[256];
+        snprintf(err, 256, "File corrupted (%d bytes in %s)", static_cast<int>(bytes), fname);
+        corruption_reporter->Report(err);
+      }
       if (this->status->ok()) *this->status = s;
     }
   };
@@ -939,8 +948,11 @@ Status VersionSet::Recover(bool *save_manifest) {
   Builder builder(this, current_);
 
   {
+    std::string cfname = CurrentFileName(dbname_);
     LogReporter reporter;
     reporter.status = &s;
+    reporter.corruption_reporter = options_->corruption_reporter;
+    reporter.fname = cfname.c_str();
     log::Reader reader(file, &reporter, true/*checksum*/, 0/*initial_offset*/);
     Slice record;
     std::string scratch;

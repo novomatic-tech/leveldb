@@ -373,9 +373,15 @@ Status DBImpl::RecoverLogFile(uint64_t log_number, bool last_log,
   struct LogReporter : public log::Reader::Reporter {
     Env* env;
     Logger* info_log;
+    CorruptionReporter* corruption_reporter;
     const char* fname;
     Status* status;  // NULL if options_.paranoid_checks==false
     virtual void Corruption(size_t bytes, const Status& s) {
+      if(corruption_reporter) {
+        char err[256];
+        snprintf(err, 256, "File corrupted (%d bytes in %s)", static_cast<int>(bytes), fname);
+        corruption_reporter->Report(err);
+      }
       Log(info_log, "%s%s: dropping %d bytes; %s",
           (this->status == NULL ? "(ignoring error) " : ""),
           fname, static_cast<int>(bytes), s.ToString().c_str());
@@ -398,6 +404,7 @@ Status DBImpl::RecoverLogFile(uint64_t log_number, bool last_log,
   LogReporter reporter;
   reporter.env = env_;
   reporter.info_log = options_.info_log;
+  reporter.corruption_reporter = options_.corruption_reporter;
   reporter.fname = fname.c_str();
   reporter.status = (options_.paranoid_checks ? &status : NULL);
   // We intentionally make log::Reader do checksumming even if

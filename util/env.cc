@@ -22,6 +22,9 @@ RandomAccessFile::~RandomAccessFile() {
 WritableFile::~WritableFile() {
 }
 
+CorruptionReporter::~CorruptionReporter() {
+}
+
 Logger::~Logger() {
 }
 

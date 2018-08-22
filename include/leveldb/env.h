@@ -240,6 +240,21 @@ class WritableFile {
   void operator=(const WritableFile&);
 };
 
+// An interface for reporting database corruption
+class CorruptionReporter {
+public:
+    CorruptionReporter() { }
+    virtual ~CorruptionReporter();
+
+    // Report corruption
+    virtual void Report(const char* corruption) = 0;
+
+private:
+    // No copying allowed
+    CorruptionReporter(const CorruptionReporter&);
+    void operator=(const CorruptionReporter&);
+};
+
 // An interface for writing log messages.
 class Logger {
  public:
