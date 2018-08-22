@@ -152,6 +152,10 @@ class LogTest {
     }
   }
 
+  char GetByte(int offset) {
+    return dest_.contents_[offset];
+  }
+
   void IncrementByte(int offset, int delta) {
     dest_.contents_[offset] += delta;
   }
@@ -166,7 +170,7 @@ class LogTest {
 
   void FixChecksum(int header_offset, int len) {
     // Compute crc of type/len/data
-    uint32_t crc = crc32c::Value(&dest_.contents_[header_offset+6], 1 + len);
+    uint32_t crc = crc32c::Value(&dest_.contents_[header_offset+7], 1 + len);
     crc = crc32c::Mask(crc);
     EncodeFixed32(&dest_.contents_[header_offset], crc);
   }
@@ -384,8 +388,8 @@ TEST(LogTest, ReadError) {
 
 TEST(LogTest, BadRecordType) {
   Write("foo");
-  // Type is stored in header[6]
-  IncrementByte(6, 100);
+  // Type is stored in header[7]
+  IncrementByte(7, 100);
   FixChecksum(0, 3);
   ASSERT_EQ("EOF", Read());
   ASSERT_EQ(3, DroppedBytes());
@@ -407,6 +411,7 @@ TEST(LogTest, BadLength) {
   Write("foo");
   // Least significant size byte is stored in header[4].
   IncrementByte(4, 1);
+  SetByte(6, GetByte(4)^GetByte(5));
   ASSERT_EQ("foo", Read());
   ASSERT_EQ(kBlockSize, DroppedBytes());
   ASSERT_EQ("OK", MatchError("bad record length"));
@@ -424,13 +429,13 @@ TEST(LogTest, ChecksumMismatch) {
   Write("foo");
   IncrementByte(0, 10);
   ASSERT_EQ("EOF", Read());
-  ASSERT_EQ(10, DroppedBytes());
+  ASSERT_EQ(11, DroppedBytes());
   ASSERT_EQ("OK", MatchError("checksum mismatch"));
 }
 
 TEST(LogTest, UnexpectedMiddleType) {
   Write("foo");
-  SetByte(6, kMiddleType);
+  SetByte(7, kMiddleType);
   FixChecksum(0, 3);
   ASSERT_EQ("EOF", Read());
   ASSERT_EQ(3, DroppedBytes());
@@ -439,7 +444,7 @@ TEST(LogTest, UnexpectedMiddleType) {
 
 TEST(LogTest, UnexpectedLastType) {
   Write("foo");
-  SetByte(6, kLastType);
+  SetByte(7, kLastType);
   FixChecksum(0, 3);
   ASSERT_EQ("EOF", Read());
   ASSERT_EQ(3, DroppedBytes());
@@ -449,7 +454,7 @@ TEST(LogTest, UnexpectedLastType) {
 TEST(LogTest, UnexpectedFullType) {
   Write("foo");
   Write("bar");
-  SetByte(6, kFirstType);
+  SetByte(7, kFirstType);
   FixChecksum(0, 3);
   ASSERT_EQ("bar", Read());
   ASSERT_EQ("EOF", Read());
@@ -460,7 +465,7 @@ TEST(LogTest, UnexpectedFullType) {
 TEST(LogTest, UnexpectedFirstType) {
   Write("foo");
   Write(BigString("bar", 100000));
-  SetByte(6, kFirstType);
+  SetByte(7, kFirstType);
   FixChecksum(0, 3);
   ASSERT_EQ(BigString("bar", 100000), Read());
   ASSERT_EQ("EOF", Read());
