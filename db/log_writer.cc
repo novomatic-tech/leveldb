@@ -8,6 +8,7 @@
 #include "leveldb/env.h"
 #include "util/coding.h"
 #include "util/crc32c.h"
+#include "log_format.h"
 
 namespace leveldb {
 namespace log {
@@ -19,15 +20,22 @@ static void InitTypeCrc(uint32_t* type_crc) {
   }
 }
 
+static void InitTrailer(char* buf) {
+    for (int i = 0; i < kHeaderSize; i++)
+        buf[i] = '\x00';
+}
+
 Writer::Writer(WritableFile* dest)
     : dest_(dest),
       block_offset_(0) {
   InitTypeCrc(type_crc_);
+  InitTrailer(trailer_);
 }
 
 Writer::Writer(WritableFile* dest, uint64_t dest_length)
     : dest_(dest), block_offset_(dest_length % kBlockSize) {
   InitTypeCrc(type_crc_);
+  InitTrailer(trailer_);
 }
 
 Writer::~Writer() {
@@ -48,9 +56,7 @@ Status Writer::AddRecord(const Slice& slice) {
     if (leftover < kHeaderSize) {
       // Switch to a new block
       if (leftover > 0) {
-        // Fill the trailer (literal below relies on kHeaderSize being 7)
-        assert(kHeaderSize == 7);
-        dest_->Append(Slice("\x00\x00\x00\x00\x00\x00", leftover));
+        dest_->Append(Slice(trailer_, leftover));
       }
       block_offset_ = 0;
     }
@@ -89,7 +95,9 @@ Status Writer::EmitPhysicalRecord(RecordType t, const char* ptr, size_t n) {
   char buf[kHeaderSize];
   buf[4] = static_cast<char>(n & 0xff);
   buf[5] = static_cast<char>(n >> 8);
-  buf[6] = static_cast<char>(t);
+  //buf[6] = static_cast<char>(t);
+  buf[6] = buf[4] ^ buf[5];
+  buf[7] = static_cast<char>(t);
 
   // Compute the crc of the record type and the payload.
   uint32_t crc = crc32c::Extend(type_crc_[t], ptr, n);

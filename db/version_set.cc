@@ -948,11 +948,10 @@ Status VersionSet::Recover(bool *save_manifest) {
   Builder builder(this, current_);
 
   {
-    std::string cfname = CurrentFileName(dbname_);
     LogReporter reporter;
     reporter.status = &s;
     reporter.corruption_reporter = options_->corruption_reporter;
-    reporter.fname = cfname.c_str();
+    reporter.fname = dscname.c_str();
     log::Reader reader(file, &reporter, true/*checksum*/, 0/*initial_offset*/);
     Slice record;
     std::string scratch;
