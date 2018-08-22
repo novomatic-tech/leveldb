@@ -340,16 +340,18 @@ Status DBImpl::Recover(VersionEdit* edit, bool *save_manifest) {
     return Status::Corruption(buf, TableFileName(dbname_, *(expected.begin())));
   }
 
-  std::string minLogFileName = LogFileName(dbname_, min_log);
-  if (min_log > 0 && !env_->FileExists(minLogFileName)) {
-    Status cs = Status::InvalidArgument(minLogFileName, "does not exist");
-    if(options_.data_corruption_reporter) {
-      char err[256];
-      snprintf(err, sizeof(err), "Missing log file - status: %s", cs.ToString().c_str());
-      options_.data_corruption_reporter->Report(err);
+  if (min_log > 0) {
+    std::string minLogFileName = LogFileName(dbname_, min_log);
+    if (!env_->FileExists(minLogFileName)) {
+      Status cs = Status::InvalidArgument(minLogFileName, "does not exist");
+      if (options_.data_corruption_reporter) {
+        char err[256];
+        snprintf(err, sizeof(err), "Missing log file - status: %s", cs.ToString().c_str());
+        options_.data_corruption_reporter->Report(err);
+      }
+      if (options_.paranoid_checks)
+        return cs;
     }
-    if(options_.paranoid_checks)
-      return cs;
   }
 
   // Recover in the order in which the logs were generated
