@@ -164,6 +164,8 @@ bool Reader::ReadRecord(Slice* record, std::string* scratch) {
           in_fragmented_record = false;
           scratch->clear();
         }
+        else
+          ReportCorruption(scratch->size(), "error in record");
         break;
 
       default: {
