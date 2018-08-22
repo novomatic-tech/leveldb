@@ -339,6 +339,11 @@ Status DBImpl::Recover(VersionEdit* edit, bool *save_manifest) {
              static_cast<int>(expected.size()));
     return Status::Corruption(buf, TableFileName(dbname_, *(expected.begin())));
   }
+  if (min_log > 0 && !env_->FileExists(LogFileName(dbname_, min_log))) {
+    char buf[50];
+    snprintf(buf, sizeof(buf), "missing log file: ");
+    return Status::Corruption(buf, LogFileName(dbname_, min_log));
+  }
 
   // Recover in the order in which the logs were generated
   std::sort(logs.begin(), logs.end());
