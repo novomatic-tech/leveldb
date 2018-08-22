@@ -32,6 +32,8 @@
 #include "util/coding.h"
 #include "util/logging.h"
 #include "util/mutexlock.h"
+#include "db_impl.h"
+#include "../include/leveldb/options.h"
 
 namespace leveldb {
 
@@ -339,10 +341,17 @@ Status DBImpl::Recover(VersionEdit* edit, bool *save_manifest) {
              static_cast<int>(expected.size()));
     return Status::Corruption(buf, TableFileName(dbname_, *(expected.begin())));
   }
-  if (min_log > 0 && !env_->FileExists(LogFileName(dbname_, min_log))) {
-    char buf[50];
-    snprintf(buf, sizeof(buf), "missing log file: ");
-    return Status::Corruption(buf, LogFileName(dbname_, min_log));
+
+  std::string minLogFileName = LogFileName(dbname_, min_log);
+  if (min_log > 0 && !env_->FileExists(minLogFileName)) {
+    Status cs = Status::InvalidArgument(minLogFileName, "does not exist");
+    if(options_.data_corruption_reporter) {
+      char err[256];
+      snprintf(err, sizeof(err), "Missing log file - status: %s", cs.ToString().c_str());
+      options_.data_corruption_reporter->Report(err);
+    }
+    if(options_.paranoid_checks)
+      return cs;
   }
 
   // Recover in the order in which the logs were generated
