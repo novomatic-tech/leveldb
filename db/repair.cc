@@ -169,7 +169,7 @@ class Repairer {
       virtual void Corruption(size_t bytes, const Status& s) {
         if(data_corruption_reporter) {
           char err[256];
-          snprintf(err, 256, "File corrupted (%d bytes in %s)", static_cast<int>(bytes), fname);
+          snprintf(err, 256, "Data corruption detected in file: %s - status: %s", fname, s.ToString().c_str());
           data_corruption_reporter->Report(err);
         }
         // We print error messages for corruption, but continue repairing.

@@ -59,10 +59,12 @@ Status Footer::DecodeFrom(Slice* input, ReadOptions const& options) {
     uint32_t expected_crc = crc32c::Unmask(DecodeFixed32(crc_ptr));
     uint32_t actual_crc = crc32c::Value(input->data(), kEncodedLength - 4);
     if (actual_crc != expected_crc) {
-      if(options.data_corruption_reporter)
-        options.data_corruption_reporter->Report(
-            Status::Corruption("footer checksum mismatch").ToString().c_str()
-        );
+      if(options.data_corruption_reporter) {
+        char err[256];
+        Status cs = Status::Corruption("footer checksum mismatch");
+        snprintf(err, 256, "Data corruption detected in database file - status: %s", cs.ToString().c_str());
+        options.data_corruption_reporter->Report(err);
+      }
       if(options.verify_checksums)
         return Status::Corruption("footer checksum mismatch");
     }
@@ -110,9 +112,12 @@ Status ReadBlock(RandomAccessFile* file,
     const uint32_t actual = crc32c::Value(data, n + 1);
     if (actual != crc) {
       if(options.data_corruption_reporter) {
-        options.data_corruption_reporter->Report(
-          Status::Corruption("block checksum mismatch").ToString().c_str()
-        );
+        if(options.data_corruption_reporter) {
+          char err[256];
+          Status cs = Status::Corruption("block checksum mismatch");
+          snprintf(err, 256, "Data corruption detected in database file - status: %s", cs.ToString().c_str());
+          options.data_corruption_reporter->Report(err);
+        }
       }
       if(options.verify_checksums) {
         delete[] buf;

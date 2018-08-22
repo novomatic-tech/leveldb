@@ -108,7 +108,9 @@ void Table::ReadMeta(const Footer& footer) {
   if (!s.ok()) {
     if (!rep_->options.paranoid_checks && rep_->options.data_corruption_reporter) {
       // It is not CRC checksum...
-      rep_->options.data_corruption_reporter->Report(s.ToString().c_str());
+      char err[256];
+      snprintf(err, 256, "MetaData corruption detected in database file - status: %s", s.ToString().c_str());
+      rep_->options.data_corruption_reporter->Report(err);
     }
     // Do not propagate errors since meta info is not needed for operation
     return;
@@ -136,8 +138,11 @@ void Table::ReadFilter(const Slice& filter_handle_value, const bool setFilter) {
   BlockHandle filter_handle;
   Status s = filter_handle.DecodeFrom(&v);
   if (!s.ok()) {
-    if(rep_->options.data_corruption_reporter)
-      rep_->options.data_corruption_reporter->Report(s.ToString().c_str());
+    if(rep_->options.data_corruption_reporter) {
+      char err[256];
+      snprintf(err, 256, "TableFilter corruption detected in database file - status: %s", s.ToString().c_str());
+      rep_->options.data_corruption_reporter->Report(err);
+    }
     return;
   }
 
@@ -153,7 +158,9 @@ void Table::ReadFilter(const Slice& filter_handle_value, const bool setFilter) {
   if (!s.ok()) {
     if (!rep_->options.paranoid_checks && rep_->options.data_corruption_reporter) {
       // It is not CRC checksum...
-      rep_->options.data_corruption_reporter->Report(s.ToString().c_str());
+      char err[256];
+      snprintf(err, 256, "TableFilter corruption detected in database file - status: %s", s.ToString().c_str());
+      rep_->options.data_corruption_reporter->Report(err);
     }
     return;
   }

@@ -379,7 +379,7 @@ Status DBImpl::RecoverLogFile(uint64_t log_number, bool last_log,
     virtual void Corruption(size_t bytes, const Status& s) {
       if(data_corruption_reporter) {
         char err[256];
-        snprintf(err, 256, "File corrupted (%d bytes in %s)", static_cast<int>(bytes), fname);
+        snprintf(err, 256, "Data corruption detected in file: %s - status: %s", fname, s.ToString().c_str());
         data_corruption_reporter->Report(err);
       }
       Log(info_log, "%s%s: dropping %d bytes; %s",
@@ -398,7 +398,7 @@ Status DBImpl::RecoverLogFile(uint64_t log_number, bool last_log,
   if (!status.ok()) {
     if(options_.data_corruption_reporter) {
       char err[256];
-      snprintf(err, 256, "Recover log file: %s - status: %s", fname.c_str(), status.ToString().c_str());
+      snprintf(err, 256, "Recover log file: %s failed - status: %s", fname.c_str(), status.ToString().c_str());
       options_.data_corruption_reporter->Report(err);
     }
     MaybeIgnoreError(&status);
