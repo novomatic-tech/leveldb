@@ -591,7 +591,7 @@ void DBImpl::CompactMemTable() {
     has_imm_.Release_Store(NULL);
     DeleteObsoleteFiles();
   } else {
-    RecordBackgroundError(s);
+    RecordBackgroundError("MemTable compaction failed", s);
   }
 }
 
@@ -665,11 +665,16 @@ Status DBImpl::TEST_CompactMemTable() {
   return s;
 }
 
-void DBImpl::RecordBackgroundError(const Status& s) {
+void DBImpl::RecordBackgroundError(const char* operationCtx, const Status& s) {
   mutex_.AssertHeld();
   if (bg_error_.ok()) {
     bg_error_ = s;
     bg_cv_.SignalAll();
+  }
+  if(options_.data_corruption_reporter) {
+    char err[256];
+    snprintf(err, 256, "%s - status: %s", operationCtx, s.ToString().c_str());
+    options_.data_corruption_reporter->Report(err);
   }
 }
 
@@ -754,7 +759,7 @@ void DBImpl::BackgroundCompaction() {
                        f->smallest, f->largest);
     status = versions_->LogAndApply(c->edit(), &mutex_);
     if (!status.ok()) {
-      RecordBackgroundError(status);
+      RecordBackgroundError("Background compaction failed", status);
     }
     VersionSet::LevelSummaryStorage tmp;
     Log(options_.info_log, "Moved #%lld to level-%d %lld bytes %s: %s\n",
@@ -767,7 +772,7 @@ void DBImpl::BackgroundCompaction() {
     CompactionState* compact = new CompactionState(c);
     status = DoCompactionWork(compact);
     if (!status.ok()) {
-      RecordBackgroundError(status);
+      RecordBackgroundError("Background compaction failed", status);
     }
     CleanupCompaction(compact);
     c->ReleaseInputs();
@@ -1068,7 +1073,7 @@ Status DBImpl::DoCompactionWork(CompactionState* compact) {
     status = InstallCompactionResults(compact);
   }
   if (!status.ok()) {
-    RecordBackgroundError(status);
+    RecordBackgroundError("Compaction failed", status);
   }
   VersionSet::LevelSummaryStorage tmp;
   Log(options_.info_log,
@@ -1268,7 +1273,7 @@ Status DBImpl::Write(const WriteOptions& options, WriteBatch* my_batch) {
         // The state of the log file is indeterminate: the log record we
         // just added may or may not show up when the DB is re-opened.
         // So we force the DB into a mode where all future writes fail.
-        RecordBackgroundError(status);
+        RecordBackgroundError("Sync failed", status);
       }
     }
     if (updates == tmp_batch_) tmp_batch_->Clear();
