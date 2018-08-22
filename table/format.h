@@ -63,11 +63,11 @@ class Footer {
   void EncodeTo(std::string* dst) const;
   Status DecodeFrom(Slice* input);
 
-  // Encoded length of a Footer.  Note that the serialization of a
-  // Footer will always occupy exactly this many bytes.  It consists
-  // of two block handles and a magic number.
+  // Encoded length of a Footer.
+  // Note that the serialization of a Footer will always occupy exactly this many bytes.
+  // It consists of two block handles, magic number and 32-bit crc.
   enum {
-    kEncodedLength = 2*BlockHandle::kMaxEncodedLength + 8
+    kEncodedLength = 2*BlockHandle::kMaxEncodedLength + 8 + 4
   };
 
  private:
