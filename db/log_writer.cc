@@ -8,7 +8,6 @@
 #include "leveldb/env.h"
 #include "util/coding.h"
 #include "util/crc32c.h"
-#include "log_format.h"
 
 namespace leveldb {
 namespace log {

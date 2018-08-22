@@ -9,7 +9,6 @@
 #include "db/log_format.h"
 #include "leveldb/slice.h"
 #include "leveldb/status.h"
-#include "log_format.h"
 
 namespace leveldb {
 

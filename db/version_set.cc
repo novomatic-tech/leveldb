@@ -17,8 +17,6 @@
 #include "table/two_level_iterator.h"
 #include "util/coding.h"
 #include "util/logging.h"
-#include "version_set.h"
-#include "../include/leveldb/options.h"
 
 namespace leveldb {
 
