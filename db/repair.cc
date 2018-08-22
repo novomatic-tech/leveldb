@@ -37,6 +37,7 @@
 #include "leveldb/comparator.h"
 #include "leveldb/db.h"
 #include "leveldb/env.h"
+#include "../include/leveldb/options.h"
 
 namespace leveldb {
 
@@ -261,6 +262,7 @@ class Repairer {
     // on checksum verification.
     ReadOptions r;
     r.verify_checksums = options_.paranoid_checks;
+    r.data_corruption_reporter = options_.data_corruption_reporter;
     return table_cache_->NewIterator(r, meta.number, meta.file_size);
   }
 
