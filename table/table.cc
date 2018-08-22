@@ -14,6 +14,7 @@
 #include "table/format.h"
 #include "table/two_level_iterator.h"
 #include "util/coding.h"
+#include "../include/leveldb/options.h"
 
 namespace leveldb {
 
@@ -50,18 +51,20 @@ Status Table::Open(const Options& options,
                         &footer_input, footer_space);
   if (!s.ok()) return s;
 
+  ReadOptions opt;
+  if (options.paranoid_checks) {
+    opt.verify_checksums = true;
+  }
+  opt.data_corruption_reporter = options.data_corruption_reporter;
+
   Footer footer;
-  s = footer.DecodeFrom(&footer_input);
+  s = footer.DecodeFrom(&footer_input, opt);
   if (!s.ok()) return s;
 
   // Read the index block
   BlockContents contents;
   Block* index_block = NULL;
   if (s.ok()) {
-    ReadOptions opt;
-    if (options.paranoid_checks) {
-      opt.verify_checksums = true;
-    }
     s = ReadBlock(file, opt, footer.index_handle(), &contents);
     if (s.ok()) {
       index_block = new Block(contents);
@@ -89,9 +92,9 @@ Status Table::Open(const Options& options,
 }
 
 void Table::ReadMeta(const Footer& footer) {
-  if (rep_->options.filter_policy == NULL) {
-    return;  // Do not need any metadata
-  }
+//  if (rep_->options.filter_policy == NULL) {
+//    return;  // Do not need any metadata
+//  }
 
   // TODO(sanjay): Skip this if footer.metaindex_handle() size indicates
   // it is an empty block.
@@ -99,28 +102,42 @@ void Table::ReadMeta(const Footer& footer) {
   if (rep_->options.paranoid_checks) {
     opt.verify_checksums = true;
   }
+  opt.data_corruption_reporter = rep_->options.data_corruption_reporter;
   BlockContents contents;
-  if (!ReadBlock(rep_->file, opt, footer.metaindex_handle(), &contents).ok()) {
+  Status s = ReadBlock(rep_->file, opt, footer.metaindex_handle(), &contents);
+  if (!s.ok()) {
+    if (!rep_->options.paranoid_checks && rep_->options.data_corruption_reporter) {
+      // It is not CRC checksum...
+      rep_->options.data_corruption_reporter->Report(s.ToString().c_str());
+    }
     // Do not propagate errors since meta info is not needed for operation
     return;
   }
   Block* meta = new Block(contents);
 
+  std::string key;
   Iterator* iter = meta->NewIterator(BytewiseComparator());
-  std::string key = "filter.";
-  key.append(rep_->options.filter_policy->Name());
-  iter->Seek(key);
-  if (iter->Valid() && iter->key() == Slice(key)) {
-    ReadFilter(iter->value());
+  if(rep_->options.filter_policy != NULL)
+  {
+    key = "filter.";
+    key.append(rep_->options.filter_policy->Name());
   }
+  for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
+    bool setFilter = (!key.empty() && iter->key() == Slice(key));
+    ReadFilter(iter->value(), setFilter);
+  }
+
   delete iter;
   delete meta;
 }
 
-void Table::ReadFilter(const Slice& filter_handle_value) {
+void Table::ReadFilter(const Slice& filter_handle_value, const bool setFilter) {
   Slice v = filter_handle_value;
   BlockHandle filter_handle;
-  if (!filter_handle.DecodeFrom(&v).ok()) {
+  Status s = filter_handle.DecodeFrom(&v);
+  if (!s.ok()) {
+    if(rep_->options.data_corruption_reporter)
+      rep_->options.data_corruption_reporter->Report(s.ToString().c_str());
     return;
   }
 
@@ -130,10 +147,19 @@ void Table::ReadFilter(const Slice& filter_handle_value) {
   if (rep_->options.paranoid_checks) {
     opt.verify_checksums = true;
   }
+  opt.data_corruption_reporter = rep_->options.data_corruption_reporter;
   BlockContents block;
-  if (!ReadBlock(rep_->file, opt, filter_handle, &block).ok()) {
+  s = ReadBlock(rep_->file, opt, filter_handle, &block);
+  if (!s.ok()) {
+    if (!rep_->options.paranoid_checks && rep_->options.data_corruption_reporter) {
+      // It is not CRC checksum...
+      rep_->options.data_corruption_reporter->Report(s.ToString().c_str());
+    }
     return;
   }
+  if(!setFilter)
+    return;
+
   if (block.heap_allocated) {
     rep_->filter_data = block.data.data();     // Will need to delete later
   }

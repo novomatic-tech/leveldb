@@ -61,7 +61,7 @@ class Footer {
   }
 
   void EncodeTo(std::string* dst) const;
-  Status DecodeFrom(Slice* input);
+  Status DecodeFrom(Slice* input, ReadOptions const& options);
 
   // Encoded length of a Footer.
   // Note that the serialization of a Footer will always occupy exactly this many bytes.

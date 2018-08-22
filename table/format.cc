@@ -9,6 +9,7 @@
 #include "table/block.h"
 #include "util/coding.h"
 #include "util/crc32c.h"
+#include "../include/leveldb/options.h"
 
 namespace leveldb {
 
@@ -43,7 +44,7 @@ void Footer::EncodeTo(std::string* dst) const {
   (void)original_size;  // Disable unused variable warning.
 }
 
-Status Footer::DecodeFrom(Slice* input) {
+Status Footer::DecodeFrom(Slice* input, ReadOptions const& options) {
   const char* magic_ptr = input->data() + kEncodedLength - 8 - 4;
   const uint32_t magic_lo = DecodeFixed32(magic_ptr);
   const uint32_t magic_hi = DecodeFixed32(magic_ptr + 4);
@@ -53,11 +54,18 @@ Status Footer::DecodeFrom(Slice* input) {
     return Status::Corruption("not an sstable (bad magic number)");
   }
 
-  const char* crc_ptr = input->data() + kEncodedLength - 4;
-  uint32_t expected_crc = crc32c::Unmask(DecodeFixed32(crc_ptr));
-  uint32_t actual_crc = crc32c::Value(input->data(), kEncodedLength - 4);
-  if (actual_crc != expected_crc) {
-    return Status::Corruption("footer checksum mismatch");
+  if(options.verify_checksums || options.data_corruption_reporter) {
+    const char *crc_ptr = input->data() + kEncodedLength - 4;
+    uint32_t expected_crc = crc32c::Unmask(DecodeFixed32(crc_ptr));
+    uint32_t actual_crc = crc32c::Value(input->data(), kEncodedLength - 4);
+    if (actual_crc != expected_crc) {
+      if(options.data_corruption_reporter)
+        options.data_corruption_reporter->Report(
+            Status::Corruption("footer checksum mismatch").ToString().c_str()
+        );
+      if(options.verify_checksums)
+        return Status::Corruption("footer checksum mismatch");
+    }
   }
 
   Status result = metaindex_handle_.DecodeFrom(input);
@@ -97,13 +105,19 @@ Status ReadBlock(RandomAccessFile* file,
 
   // Check the crc of the type and the block contents
   const char* data = contents.data();    // Pointer to where Read put the data
-  if (options.verify_checksums) {
+  if (options.verify_checksums || options.data_corruption_reporter) {
     const uint32_t crc = crc32c::Unmask(DecodeFixed32(data + n + 1));
     const uint32_t actual = crc32c::Value(data, n + 1);
     if (actual != crc) {
-      delete[] buf;
-      s = Status::Corruption("block checksum mismatch");
-      return s;
+      if(options.data_corruption_reporter) {
+        options.data_corruption_reporter->Report(
+          Status::Corruption("block checksum mismatch").ToString().c_str()
+        );
+      }
+      if(options.verify_checksums) {
+        delete[] buf;
+        return Status::Corruption("block checksum mismatch");
+      }
     }
   }
 
