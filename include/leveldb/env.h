@@ -240,19 +240,19 @@ class WritableFile {
   void operator=(const WritableFile&);
 };
 
-// An interface for reporting database corruption
-class CorruptionReporter {
+// An interface for reporting data corruption
+class DataCorruptionReporter {
 public:
-    CorruptionReporter() { }
-    virtual ~CorruptionReporter();
+    DataCorruptionReporter() { }
+    virtual ~DataCorruptionReporter();
 
     // Report corruption
     virtual void Report(const char* corruption) = 0;
 
 private:
     // No copying allowed
-    CorruptionReporter(const CorruptionReporter&);
-    void operator=(const CorruptionReporter&);
+    DataCorruptionReporter(const DataCorruptionReporter&);
+    void operator=(const DataCorruptionReporter&);
 };
 
 // An interface for writing log messages.

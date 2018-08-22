@@ -373,14 +373,14 @@ Status DBImpl::RecoverLogFile(uint64_t log_number, bool last_log,
   struct LogReporter : public log::Reader::Reporter {
     Env* env;
     Logger* info_log;
-    CorruptionReporter* corruption_reporter;
+    DataCorruptionReporter* data_corruption_reporter;
     const char* fname;
     Status* status;  // NULL if options_.paranoid_checks==false
     virtual void Corruption(size_t bytes, const Status& s) {
-      if(corruption_reporter) {
+      if(data_corruption_reporter) {
         char err[256];
         snprintf(err, 256, "File corrupted (%d bytes in %s)", static_cast<int>(bytes), fname);
-        corruption_reporter->Report(err);
+        data_corruption_reporter->Report(err);
       }
       Log(info_log, "%s%s: dropping %d bytes; %s",
           (this->status == NULL ? "(ignoring error) " : ""),
@@ -396,6 +396,11 @@ Status DBImpl::RecoverLogFile(uint64_t log_number, bool last_log,
   SequentialFile* file;
   Status status = env_->NewSequentialFile(fname, &file);
   if (!status.ok()) {
+    if(options_.data_corruption_reporter) {
+      char err[256];
+      snprintf(err, 256, "Recover log file: %s - status: %s", fname.c_str(), status.ToString().c_str());
+      options_.data_corruption_reporter->Report(err);
+    }
     MaybeIgnoreError(&status);
     return status;
   }
@@ -404,7 +409,7 @@ Status DBImpl::RecoverLogFile(uint64_t log_number, bool last_log,
   LogReporter reporter;
   reporter.env = env_;
   reporter.info_log = options_.info_log;
-  reporter.corruption_reporter = options_.corruption_reporter;
+  reporter.data_corruption_reporter = options_.data_corruption_reporter;
   reporter.fname = fname.c_str();
   reporter.status = (options_.paranoid_checks ? &status : NULL);
   // We intentionally make log::Reader do checksumming even if
@@ -436,6 +441,11 @@ Status DBImpl::RecoverLogFile(uint64_t log_number, bool last_log,
       mem->Ref();
     }
     status = WriteBatchInternal::InsertInto(&batch, mem);
+    if(!status.ok() && options_.data_corruption_reporter) {
+      char err[256];
+      snprintf(err, 256, "Recover log file: %s failed - status: %s", fname.c_str(), status.ToString().c_str());
+      options_.data_corruption_reporter->Report(err);
+    }
     MaybeIgnoreError(&status);
     if (!status.ok()) {
       break;

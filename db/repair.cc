@@ -163,14 +163,14 @@ class Repairer {
     struct LogReporter : public log::Reader::Reporter {
       Env* env;
       Logger* info_log;
-      CorruptionReporter* corruption_reporter;
+      DataCorruptionReporter* data_corruption_reporter;
       const char* fname;
       uint64_t lognum;
       virtual void Corruption(size_t bytes, const Status& s) {
-        if(corruption_reporter) {
+        if(data_corruption_reporter) {
           char err[256];
           snprintf(err, 256, "File corrupted (%d bytes in %s)", static_cast<int>(bytes), fname);
-          corruption_reporter->Report(err);
+          data_corruption_reporter->Report(err);
         }
         // We print error messages for corruption, but continue repairing.
         Log(info_log, "Log #%llu: dropping %d bytes; %s",
@@ -192,7 +192,7 @@ class Repairer {
     LogReporter reporter;
     reporter.env = env_;
     reporter.info_log = options_.info_log;
-    reporter.corruption_reporter = options_.corruption_reporter;
+    reporter.data_corruption_reporter = options_.data_corruption_reporter;
     reporter.fname = logname.c_str();
     reporter.lognum = log;
     // We intentionally make log::Reader do checksumming so that
