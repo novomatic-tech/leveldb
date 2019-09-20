@@ -37,6 +37,7 @@
 #include "leveldb/comparator.h"
 #include "leveldb/db.h"
 #include "leveldb/env.h"
+#include "../include/leveldb/options.h"
 
 namespace leveldb {
 
@@ -163,8 +164,15 @@ class Repairer {
     struct LogReporter : public log::Reader::Reporter {
       Env* env;
       Logger* info_log;
+      DataCorruptionReporter* data_corruption_reporter;
+      const char* fname;
       uint64_t lognum;
       virtual void Corruption(size_t bytes, const Status& s) {
+        if(data_corruption_reporter) {
+          char err[256];
+          snprintf(err, 256, "Data corruption detected in file: %s - status: %s", fname, s.ToString().c_str());
+          data_corruption_reporter->Report(err);
+        }
         // We print error messages for corruption, but continue repairing.
         Log(info_log, "Log #%llu: dropping %d bytes; %s",
             (unsigned long long) lognum,
@@ -185,6 +193,8 @@ class Repairer {
     LogReporter reporter;
     reporter.env = env_;
     reporter.info_log = options_.info_log;
+    reporter.data_corruption_reporter = options_.data_corruption_reporter;
+    reporter.fname = logname.c_str();
     reporter.lognum = log;
     // We intentionally make log::Reader do checksumming so that
     // corruptions cause entire commits to be skipped instead of
@@ -252,6 +262,7 @@ class Repairer {
     // on checksum verification.
     ReadOptions r;
     r.verify_checksums = options_.paranoid_checks;
+    r.data_corruption_reporter = options_.data_corruption_reporter;
     return table_cache_->NewIterator(r, meta.number, meta.file_size);
   }
 

@@ -904,8 +904,15 @@ Status VersionSet::LogAndApply(VersionEdit* edit, port::Mutex* mu) {
 
 Status VersionSet::Recover(bool *save_manifest) {
   struct LogReporter : public log::Reader::Reporter {
+    DataCorruptionReporter* data_corruption_reporter;
+    const char* fname;
     Status* status;
     virtual void Corruption(size_t bytes, const Status& s) {
+      if(data_corruption_reporter) {
+        char err[256];
+        snprintf(err, 256, "Data corruption detected in file: %s - status: %s", fname, s.ToString().c_str());
+        data_corruption_reporter->Report(err);
+      }
       if (this->status->ok()) *this->status = s;
     }
   };
@@ -941,6 +948,8 @@ Status VersionSet::Recover(bool *save_manifest) {
   {
     LogReporter reporter;
     reporter.status = &s;
+    reporter.data_corruption_reporter = options_->data_corruption_reporter;
+    reporter.fname = dscname.c_str();
     log::Reader reader(file, &reporter, true/*checksum*/, 0/*initial_offset*/);
     Slice record;
     std::string scratch;

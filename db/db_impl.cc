@@ -340,6 +340,20 @@ Status DBImpl::Recover(VersionEdit* edit, bool *save_manifest) {
     return Status::Corruption(buf, TableFileName(dbname_, *(expected.begin())));
   }
 
+  if (min_log > 0) {
+    std::string minLogFileName = LogFileName(dbname_, min_log);
+    if (!env_->FileExists(minLogFileName)) {
+      Status cs = Status::InvalidArgument(minLogFileName, "does not exist");
+      if (options_.data_corruption_reporter) {
+        char err[256];
+        snprintf(err, sizeof(err), "Missing log file - status: %s", cs.ToString().c_str());
+        options_.data_corruption_reporter->Report(err);
+      }
+      if (options_.paranoid_checks)
+        return cs;
+    }
+  }
+
   // Recover in the order in which the logs were generated
   std::sort(logs.begin(), logs.end());
   for (size_t i = 0; i < logs.size(); i++) {
@@ -368,9 +382,15 @@ Status DBImpl::RecoverLogFile(uint64_t log_number, bool last_log,
   struct LogReporter : public log::Reader::Reporter {
     Env* env;
     Logger* info_log;
+    DataCorruptionReporter* data_corruption_reporter;
     const char* fname;
     Status* status;  // NULL if options_.paranoid_checks==false
     virtual void Corruption(size_t bytes, const Status& s) {
+      if(data_corruption_reporter) {
+        char err[256];
+        snprintf(err, 256, "Data corruption detected in file: %s - status: %s", fname, s.ToString().c_str());
+        data_corruption_reporter->Report(err);
+      }
       Log(info_log, "%s%s: dropping %d bytes; %s",
           (this->status == NULL ? "(ignoring error) " : ""),
           fname, static_cast<int>(bytes), s.ToString().c_str());
@@ -385,6 +405,11 @@ Status DBImpl::RecoverLogFile(uint64_t log_number, bool last_log,
   SequentialFile* file;
   Status status = env_->NewSequentialFile(fname, &file);
   if (!status.ok()) {
+    if(options_.data_corruption_reporter) {
+      char err[256];
+      snprintf(err, 256, "Recover log file: %s failed - status: %s", fname.c_str(), status.ToString().c_str());
+      options_.data_corruption_reporter->Report(err);
+    }
     MaybeIgnoreError(&status);
     return status;
   }
@@ -393,6 +418,7 @@ Status DBImpl::RecoverLogFile(uint64_t log_number, bool last_log,
   LogReporter reporter;
   reporter.env = env_;
   reporter.info_log = options_.info_log;
+  reporter.data_corruption_reporter = options_.data_corruption_reporter;
   reporter.fname = fname.c_str();
   reporter.status = (options_.paranoid_checks ? &status : NULL);
   // We intentionally make log::Reader do checksumming even if
@@ -424,6 +450,11 @@ Status DBImpl::RecoverLogFile(uint64_t log_number, bool last_log,
       mem->Ref();
     }
     status = WriteBatchInternal::InsertInto(&batch, mem);
+    if(!status.ok() && options_.data_corruption_reporter) {
+      char err[256];
+      snprintf(err, 256, "Recover log file: %s failed - status: %s", fname.c_str(), status.ToString().c_str());
+      options_.data_corruption_reporter->Report(err);
+    }
     MaybeIgnoreError(&status);
     if (!status.ok()) {
       break;
@@ -560,7 +591,7 @@ void DBImpl::CompactMemTable() {
     has_imm_.Release_Store(NULL);
     DeleteObsoleteFiles();
   } else {
-    RecordBackgroundError(s);
+    RecordBackgroundError("MemTable compaction failed", s);
   }
 }
 
@@ -634,11 +665,16 @@ Status DBImpl::TEST_CompactMemTable() {
   return s;
 }
 
-void DBImpl::RecordBackgroundError(const Status& s) {
+void DBImpl::RecordBackgroundError(const char* operationCtx, const Status& s) {
   mutex_.AssertHeld();
   if (bg_error_.ok()) {
     bg_error_ = s;
     bg_cv_.SignalAll();
+  }
+  if(options_.data_corruption_reporter) {
+    char err[256];
+    snprintf(err, 256, "%s - status: %s", operationCtx, s.ToString().c_str());
+    options_.data_corruption_reporter->Report(err);
   }
 }
 
@@ -723,7 +759,7 @@ void DBImpl::BackgroundCompaction() {
                        f->smallest, f->largest);
     status = versions_->LogAndApply(c->edit(), &mutex_);
     if (!status.ok()) {
-      RecordBackgroundError(status);
+      RecordBackgroundError("Background compaction failed", status);
     }
     VersionSet::LevelSummaryStorage tmp;
     Log(options_.info_log, "Moved #%lld to level-%d %lld bytes %s: %s\n",
@@ -736,7 +772,7 @@ void DBImpl::BackgroundCompaction() {
     CompactionState* compact = new CompactionState(c);
     status = DoCompactionWork(compact);
     if (!status.ok()) {
-      RecordBackgroundError(status);
+      RecordBackgroundError("Background compaction failed", status);
     }
     CleanupCompaction(compact);
     c->ReleaseInputs();
@@ -1037,7 +1073,7 @@ Status DBImpl::DoCompactionWork(CompactionState* compact) {
     status = InstallCompactionResults(compact);
   }
   if (!status.ok()) {
-    RecordBackgroundError(status);
+    RecordBackgroundError("Compaction failed", status);
   }
   VersionSet::LevelSummaryStorage tmp;
   Log(options_.info_log,
@@ -1237,7 +1273,7 @@ Status DBImpl::Write(const WriteOptions& options, WriteBatch* my_batch) {
         // The state of the log file is indeterminate: the log record we
         // just added may or may not show up when the DB is re-opened.
         // So we force the DB into a mode where all future writes fail.
-        RecordBackgroundError(status);
+        RecordBackgroundError("Sync failed", status);
       }
     }
     if (updates == tmp_batch_) tmp_batch_->Clear();

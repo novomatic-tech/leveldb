@@ -38,7 +38,7 @@ bool Reader::SkipToInitialBlock() {
   uint64_t block_start_location = initial_offset_ - offset_in_block;
 
   // Don't search a block if we'd be in the trailer
-  if (offset_in_block > kBlockSize - 6) {
+  if (offset_in_block > kBlockSize - kHeaderSize + 1) {
     offset_in_block = 0;
     block_start_location += kBlockSize;
   }
@@ -164,6 +164,8 @@ bool Reader::ReadRecord(Slice* record, std::string* scratch) {
           in_fragmented_record = false;
           scratch->clear();
         }
+        else
+          ReportCorruption(scratch->size(), "error in record");
         break;
 
       default: {
@@ -227,8 +229,19 @@ unsigned int Reader::ReadPhysicalRecord(Slice* result) {
     const char* header = buffer_.data();
     const uint32_t a = static_cast<uint32_t>(header[4]) & 0xff;
     const uint32_t b = static_cast<uint32_t>(header[5]) & 0xff;
-    const unsigned int type = header[6];
+    //const unsigned int type = header[6];
+	const unsigned int type = header[7];
+	const uint32_t sxor = static_cast<uint32_t>(header[6]) & 0xff;
+	const uint32_t cxor = a ^ b;
     const uint32_t length = a | (b << 8);
+
+    if(cxor != sxor)
+    {
+      buffer_.clear();
+      ReportCorruption(length, "record length corrupted");
+      return kBadRecord;
+    }
+
     if (kHeaderSize + length > buffer_.size()) {
       size_t drop_size = buffer_.size();
       buffer_.clear();
@@ -247,13 +260,14 @@ unsigned int Reader::ReadPhysicalRecord(Slice* result) {
       // such records are produced by the mmap based writing code in
       // env_posix.cc that preallocates file regions.
       buffer_.clear();
+      ReportCorruption(length, "zero length");
       return kBadRecord;
     }
 
     // Check crc
     if (checksum_) {
       uint32_t expected_crc = crc32c::Unmask(DecodeFixed32(header));
-      uint32_t actual_crc = crc32c::Value(header + 6, 1 + length);
+      uint32_t actual_crc = crc32c::Value(header + kHeaderSize - 1, 1 + length);
       if (actual_crc != expected_crc) {
         // Drop the rest of the buffer since "length" itself may have
         // been corrupted and if we trust it, we could find some
@@ -271,6 +285,7 @@ unsigned int Reader::ReadPhysicalRecord(Slice* result) {
     // Skip physical record that started before initial_offset_
     if (end_of_buffer_offset_ - buffer_.size() - kHeaderSize - length <
         initial_offset_) {
+      ReportCorruption(result->size(), "record started before initial offset");
       result->clear();
       return kBadRecord;
     }

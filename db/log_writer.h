@@ -40,6 +40,7 @@ class Writer {
   // pre-computed to reduce the overhead of computing the crc of the
   // record type stored in the header.
   uint32_t type_crc_[kMaxRecordType + 1];
+  char trailer_[kHeaderSize];
 
   Status EmitPhysicalRecord(RecordType type, const char* ptr, size_t length);
 

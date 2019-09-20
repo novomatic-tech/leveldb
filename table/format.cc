@@ -36,18 +36,37 @@ void Footer::EncodeTo(std::string* dst) const {
   dst->resize(2 * BlockHandle::kMaxEncodedLength);  // Padding
   PutFixed32(dst, static_cast<uint32_t>(kTableMagicNumber & 0xffffffffu));
   PutFixed32(dst, static_cast<uint32_t>(kTableMagicNumber >> 32));
+  uint32_t crc = crc32c::Value(dst->data(), dst->size()); // Compute the crc
+  crc = crc32c::Mask(crc);
+  PutFixed32(dst, crc);
   assert(dst->size() == original_size + kEncodedLength);
   (void)original_size;  // Disable unused variable warning.
 }
 
-Status Footer::DecodeFrom(Slice* input) {
-  const char* magic_ptr = input->data() + kEncodedLength - 8;
+Status Footer::DecodeFrom(Slice* input, ReadOptions const& options) {
+  const char* magic_ptr = input->data() + kEncodedLength - 8 - 4;
   const uint32_t magic_lo = DecodeFixed32(magic_ptr);
   const uint32_t magic_hi = DecodeFixed32(magic_ptr + 4);
   const uint64_t magic = ((static_cast<uint64_t>(magic_hi) << 32) |
                           (static_cast<uint64_t>(magic_lo)));
   if (magic != kTableMagicNumber) {
     return Status::Corruption("not an sstable (bad magic number)");
+  }
+
+  if(options.verify_checksums || options.data_corruption_reporter) {
+    const char *crc_ptr = input->data() + kEncodedLength - 4;
+    uint32_t expected_crc = crc32c::Unmask(DecodeFixed32(crc_ptr));
+    uint32_t actual_crc = crc32c::Value(input->data(), kEncodedLength - 4);
+    if (actual_crc != expected_crc) {
+      if(options.data_corruption_reporter) {
+        char err[256];
+        Status cs = Status::Corruption("footer checksum mismatch");
+        snprintf(err, 256, "Data corruption detected in database file - status: %s", cs.ToString().c_str());
+        options.data_corruption_reporter->Report(err);
+      }
+      if(options.verify_checksums)
+        return Status::Corruption("footer checksum mismatch");
+    }
   }
 
   Status result = metaindex_handle_.DecodeFrom(input);
@@ -87,13 +106,22 @@ Status ReadBlock(RandomAccessFile* file,
 
   // Check the crc of the type and the block contents
   const char* data = contents.data();    // Pointer to where Read put the data
-  if (options.verify_checksums) {
+  if (options.verify_checksums || options.data_corruption_reporter) {
     const uint32_t crc = crc32c::Unmask(DecodeFixed32(data + n + 1));
     const uint32_t actual = crc32c::Value(data, n + 1);
     if (actual != crc) {
-      delete[] buf;
-      s = Status::Corruption("block checksum mismatch");
-      return s;
+      if(options.data_corruption_reporter) {
+        if(options.data_corruption_reporter) {
+          char err[256];
+          Status cs = Status::Corruption("block checksum mismatch");
+          snprintf(err, 256, "Data corruption detected in database file - status: %s", cs.ToString().c_str());
+          options.data_corruption_reporter->Report(err);
+        }
+      }
+      if(options.verify_checksums) {
+        delete[] buf;
+        return Status::Corruption("block checksum mismatch");
+      }
     }
   }
 
